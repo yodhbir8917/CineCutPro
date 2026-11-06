@@ -3,6 +3,7 @@ package com.example
 
 import android.net.Uri
 import android.os.Bundle
+import android.view.ViewGroup
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -67,6 +68,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -76,47 +79,48 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 
-// --- CINECUT PRO THEME COLORS (100% Free Forever) ---
-val StudioDark = Color(0xFF0D0F14)
-val StudioSurface = Color(0xFF161922)
-val StudioSurfaceElevated = Color(0xFF1E2230)
-val StudioBorder = Color(0xFF2B3144)
 val PremiereCyan = Color(0xFF00E5FF)
 val PremiereAmber = Color(0xFFFFB300)
 val PremiereEmerald = Color(0xFF10B981)
-val TextPrimary = Color(0xFFF1F3F9)
-val TextSecondary = Color(0xFF9DA7BE)
+val StudioDark = Color(0xFF0B0D13)
+val StudioSurface = Color(0xFF161922)
+val StudioSurfaceElevated = Color(0xFF222634)
+val StudioBorder = Color(0xFF2E3446)
+val TextPrimary = Color(0xFFF1F5F9)
+val TextSecondary = Color(0xFF94A3B8)
 
 private val CineCutColorScheme = darkColorScheme(
     primary = PremiereCyan,
     onPrimary = Color.Black,
-    primaryContainer = Color(0xFF004D59),
-    onPrimaryContainer = Color(0xFF8CEEFF),
     secondary = PremiereAmber,
-    onSecondary = Color.Black,
-    background = StudioDark,
-    onBackground = TextPrimary,
     surface = StudioSurface,
+    background = StudioDark,
     onSurface = TextPrimary,
-    surfaceVariant = StudioSurfaceElevated,
-    outline = StudioBorder
+    onBackground = TextPrimary
 )
 
 data class SequenceConfig(
-    val videoUri: Uri? = null,
-    val name: String = "Sequence 1",
+    val name: String = "Sequence 01",
     val aspectRatio: String = "16:9",
     val resolution: String = "1080p",
-    val frameRate: String = "30 FPS"
+    val frameRate: String = "30 FPS",
+    val videoUri: Uri? = null
 )
 
 class MainActivity : ComponentActivity() {
@@ -137,31 +141,27 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun CineCutNavigationApp() {
     val navController = rememberNavController()
-    var currentConfig by remember { mutableStateOf(SequenceConfig()) }
+    var activeConfig by remember { mutableStateOf(SequenceConfig()) }
 
     NavHost(navController = navController, startDestination = "home") {
         composable("home") {
             CineCutHomeScreen(
-                onVideoSelected = { uri ->
-                    currentConfig = currentConfig.copy(videoUri = uri, name = "Sequence_${System.currentTimeMillis() % 10000}")
-                    navController.navigate("sequence_settings")
-                }
+                onStartProject = { navController.navigate("sequence_settings") }
             )
         }
         composable("sequence_settings") {
             SequenceSettingsScreen(
-                initialConfig = currentConfig,
                 onBack = { navController.popBackStack() },
-                onCreateSequence = { finalizedConfig ->
-                    currentConfig = finalizedConfig
+                onSequenceCreated = { config ->
+                    activeConfig = config
                     navController.navigate("editing_workspace")
                 }
             )
         }
         composable("editing_workspace") {
             EditingWorkspaceScreen(
-                config = currentConfig,
-                onBack = { navController.navigate("home") { popUpTo("home") { inclusive = true } } }
+                config = activeConfig,
+                onBack = { navController.popBackStack("home", inclusive = false) }
             )
         }
     }
@@ -169,47 +169,29 @@ fun CineCutNavigationApp() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CineCutHomeScreen(onVideoSelected: (Uri) -> Unit) {
-    var selectedTab by remember { mutableIntStateOf(0) }
-    val photoPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) onVideoSelected(uri)
-    }
-    val openPicker = { photoPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) }
+fun CineCutHomeScreen(onStartProject: () -> Unit) {
+    var selectedTabIndex by remember { mutableIntStateOf(0) }
+    val tabs = listOf("PROJECTS (0)", "PRESETS", "EXPORTS", "SETTINGS")
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(modifier = Modifier.size(34.dp).clip(RoundedCornerShape(8.dp)).background(PremiereCyan), contentAlignment = Alignment.Center) {
-                            Icon(imageVector = Icons.Default.Movie, contentDescription = null, tint = Color.Black, modifier = Modifier.size(20.dp))
-                        }
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Row {
-                                Text("CINECUT", color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Black)
-                                Text(" PRO", color = PremiereCyan, fontSize = 17.sp, fontWeight = FontWeight.Black)
-                            }
-                            Text("100% Free Forever • No Watermark • Offline", color = PremiereCyan, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                },
-                actions = {
-                    IconButton(onClick = openPicker) {
-                        Icon(imageVector = Icons.Default.Add, contentDescription = "New Project", tint = PremiereCyan, modifier = Modifier.size(28.dp))
-                    }
-                },
+                title = { Text(text = "CINECUT PRO", fontWeight = FontWeight.Black, fontSize = 20.sp, letterSpacing = 2.sp, color = TextPrimary) },
+                actions = { IconButton(onClick = onStartProject) { Icon(imageVector = Icons.Default.Add, contentDescription = "New Sequence", tint = PremiereCyan) } },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = StudioSurface)
             )
         },
         floatingActionButton = {
-            if (selectedTab == 0) {
-                FloatingActionButton(onClick = openPicker, containerColor = PremiereCyan, contentColor = Color.Black, shape = RoundedCornerShape(16.dp)) {
-                    Row(modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(imageVector = Icons.Default.Add, contentDescription = null)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("NEW SEQUENCE", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                    }
+            FloatingActionButton(
+                onClick = onStartProject,
+                containerColor = PremiereCyan,
+                contentColor = Color.Black,
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Row(modifier = Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(imageVector = Icons.Default.Add, contentDescription = null)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(text = "NEW SEQUENCE", fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 1.sp)
                 }
             }
         },
@@ -217,18 +199,36 @@ fun CineCutHomeScreen(onVideoSelected: (Uri) -> Unit) {
     ) { innerPadding ->
         Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
             TabRow(
-                selectedTabIndex = selectedTab,
+                selectedTabIndex = selectedTabIndex,
                 containerColor = StudioSurface,
                 contentColor = PremiereCyan,
-                indicator = { tabPositions -> TabRowDefaults.SecondaryIndicator(Modifier.tabIndicatorOffset(tabPositions[selectedTab]), color = PremiereCyan) }
+                indicator = { tabPositions ->
+                    TabRowDefaults.SecondaryIndicator(
+                        modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTabIndex]),
+                        height = 3.dp,
+                        color = PremiereCyan
+                    )
+                }
             ) {
-                Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("PROJECTS (0)", fontWeight = FontWeight.Bold, fontSize = 12.sp) })
-                Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("PRESETS", fontWeight = FontWeight.Bold, fontSize = 12.sp) })
-                Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("EXPORTS", fontWeight = FontWeight.Bold, fontSize = 12.sp) })
-                Tab(selected = selectedTab == 3, onClick = { selectedTab = 3 }, text = { Text("SETTINGS", fontWeight = FontWeight.Bold, fontSize = 12.sp) })
+                tabs.forEachIndexed { index, title ->
+                    Tab(
+                        selected = selectedTabIndex == index,
+                        onClick = { selectedTabIndex = index },
+                        text = {
+                            Text(
+                                text = title,
+                                fontSize = 11.sp,
+                                fontWeight = if (selectedTabIndex == index) FontWeight.Bold else FontWeight.Medium,
+                                color = if (selectedTabIndex == index) PremiereCyan else TextSecondary,
+                                maxLines = 1
+                            )
+                        }
+                    )
+                }
             }
-            when (selectedTab) {
-                0 -> ProjectsEmptyState(onStartNewProject = openPicker)
+
+            when (selectedTabIndex) {
+                0 -> ProjectsEmptyState(onStartProject = onStartProject)
                 1 -> PresetsTab()
                 2 -> ExportsTab()
                 3 -> SettingsTab()
@@ -238,37 +238,39 @@ fun CineCutHomeScreen(onVideoSelected: (Uri) -> Unit) {
 }
 
 @Composable
-fun ProjectsEmptyState(onStartNewProject: () -> Unit) {
+fun ProjectsEmptyState(onStartProject: () -> Unit) {
     Box(modifier = Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Box(modifier = Modifier.size(68.dp).clip(CircleShape).background(StudioSurfaceElevated).border(1.dp, StudioBorder, CircleShape), contentAlignment = Alignment.Center) {
-                Icon(imageVector = Icons.Default.VideoLibrary, contentDescription = null, tint = PremiereCyan, modifier = Modifier.size(34.dp))
-            }
-            Text("NO EDITING SEQUENCES YET", color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-            Card(
-                modifier = Modifier.fillMaxWidth(0.92f).padding(vertical = 4.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF0F1E2E)),
-                border = BorderStroke(1.dp, PremiereCyan.copy(alpha = 0.4f)),
-                shape = RoundedCornerShape(10.dp)
+        Card(
+            modifier = Modifier.fillMaxWidth().border(BorderStroke(1.dp, StudioBorder), shape = RoundedCornerShape(16.dp)),
+            colors = CardDefaults.cardColors(containerColor = StudioSurfaceElevated),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
             ) {
-                Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Icon(imageVector = Icons.Default.Info, contentDescription = null, tint = PremiereCyan, modifier = Modifier.size(20.dp))
-                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text("DEVICE VIDEO IMPORT READY", color = PremiereCyan, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        Text("Tap the button below to browse all accessible videos on your physical phone gallery using the native Android Photo Picker.", color = TextSecondary, fontSize = 11.sp, lineHeight = 15.sp)
-                    }
+                Box(
+                    modifier = Modifier.size(72.dp).clip(CircleShape).background(Color(0xFF003842)).border(2.dp, PremiereCyan, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(imageVector = Icons.Default.Movie, contentDescription = null, tint = PremiereCyan, modifier = Modifier.size(36.dp))
                 }
-            }
-            Spacer(modifier = Modifier.height(4.dp))
-            Button(
-                onClick = onStartNewProject,
-                colors = ButtonDefaults.buttonColors(containerColor = PremiereCyan, contentColor = Color.Black),
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.fillMaxWidth(0.88f).height(46.dp)
-            ) {
-                Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("START NEW PROJECT", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Spacer(modifier = Modifier.height(20.dp))
+                Text(text = "NO EDITING SEQUENCES YET", color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp, textAlign = TextAlign.Center)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(text = "Create a project sequence to edit multiple video tracks, arrange clips, and render with hardware acceleration.", color = TextSecondary, fontSize = 12.sp, textAlign = TextAlign.Center, lineHeight = 18.sp)
+                Spacer(modifier = Modifier.height(24.dp))
+                Button(
+                    onClick = onStartProject,
+                    colors = ButtonDefaults.buttonColors(containerColor = PremiereCyan, contentColor = Color.Black),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth().height(46.dp)
+                ) {
+                    Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(text = "START NEW PROJECT", fontWeight = FontWeight.Bold, fontSize = 13.sp, letterSpacing = 1.sp)
+                }
             }
         }
     }
@@ -277,217 +279,83 @@ fun ProjectsEmptyState(onStartNewProject: () -> Unit) {
 // --- PART 3 START ---
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SequenceSettingsScreen(initialConfig: SequenceConfig, onBack: () -> Unit, onCreateSequence: (SequenceConfig) -> Unit) {
-    var sequenceName by remember { mutableStateOf(initialConfig.name) }
-    var selectedAspectRatio by remember { mutableStateOf(initialConfig.aspectRatio) }
-    var selectedResolution by remember { mutableStateOf(initialConfig.resolution) }
-    var selectedFrameRate by remember { mutableStateOf(initialConfig.frameRate) }
-
-    val aspectRatios = listOf(Triple("9:16", "Vertical (Reels/TikTok)", "9:16"), Triple("16:9", "Landscape (YouTube/Cinema)", "16:9"), Triple("1:1", "Square (Instagram)", "1:1"))
-    val resolutions = listOf("720p", "1080p", "2K", "4K")
-    val frameRates = listOf("24 FPS", "25 FPS", "30 FPS", "50 FPS", "60 FPS")
+fun SequenceSettingsScreen(onBack: () -> Unit, onSequenceCreated: (SequenceConfig) -> Unit) {
+    var sequenceName by remember { mutableStateOf("Sequence 01") }
+    var selectedAspect by remember { mutableStateOf("16:9") }
+    var selectedResolution by remember { mutableStateOf("1080p") }
+    var selectedFps by remember { mutableStateOf("30 FPS") }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("NEW SEQUENCE SETTINGS", color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp) },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = PremiereCyan) } },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = StudioSurface)
-            )
-        },
-        bottomBar = {
-            Surface(color = StudioSurface, border = BorderStroke(1.dp, StudioBorder), modifier = Modifier.fillMaxWidth()) {
-                Box(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-                    Button(
-                        onClick = { onCreateSequence(SequenceConfig(initialConfig.videoUri, sequenceName.ifBlank { "Sequence 1" }, selectedAspectRatio, selectedResolution, selectedFrameRate)) },
-                        colors = ButtonDefaults.buttonColors(containerColor = PremiereCyan, contentColor = Color.Black),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth().height(50.dp)
-                    ) {
-                        Icon(imageVector = Icons.Default.Movie, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("CREATE SEQUENCE", fontWeight = FontWeight.Black, fontSize = 14.sp, letterSpacing = 1.sp)
-                    }
-                }
-            }
-        },
-        containerColor = StudioDark
-    ) { innerPadding ->
-        Column(modifier = Modifier.fillMaxSize().padding(innerPadding).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            initialConfig.videoUri?.let { uri ->
-                Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFF0F2537)), border = BorderStroke(1.dp, PremiereCyan.copy(alpha = 0.5f)), shape = RoundedCornerShape(10.dp)) {
-                    Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Box(modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)).background(PremiereCyan.copy(alpha = 0.2f)), contentAlignment = Alignment.Center) {
-                            Icon(imageVector = Icons.Default.Movie, contentDescription = null, tint = PremiereCyan)
-                        }
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("SOURCE VIDEO LOADED", color = PremiereCyan, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            Text(text = uri.toString(), color = TextSecondary, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                    }
-                }
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("SEQUENCE NAME", color = PremiereCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                OutlinedTextField(
-                    value = sequenceName,
-                    onValueChange = { sequenceName = it },
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = PremiereCyan, unfocusedBorderColor = StudioBorder, focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary, focusedContainerColor = StudioSurfaceElevated, unfocusedContainerColor = StudioSurfaceElevated),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("ASPECT RATIO", color = PremiereCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    aspectRatios.forEach { (ratio, _, value) ->
-                        val isSelected = selectedAspectRatio == value
-                        Card(
-                            modifier = Modifier.weight(1f).clickable { selectedAspectRatio = value },
-                            colors = CardDefaults.cardColors(containerColor = if (isSelected) Color(0xFF003842) else StudioSurfaceElevated),
-                            border = BorderStroke(1.5.dp, if (isSelected) PremiereCyan else StudioBorder),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Column(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(text = ratio, color = if (isSelected) PremiereCyan else TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                                Text(text = if (value == "9:16") "Reels" else if (value == "16:9") "YouTube" else "Square", color = if (isSelected) PremiereCyan else TextSecondary, fontSize = 10.sp)
-                            }
-                        }
-                    }
-                }
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("RESOLUTION", color = PremiereCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    resolutions.forEach { res ->
-                        val isSelected = selectedResolution == res
-                        Card(
-                            modifier = Modifier.weight(1f).clickable { selectedResolution = res },
-                            colors = CardDefaults.cardColors(containerColor = if (isSelected) Color(0xFF003842) else StudioSurfaceElevated),
-                            border = BorderStroke(1.5.dp, if (isSelected) PremiereCyan else StudioBorder),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Box(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
-                                Text(text = res, color = if (isSelected) PremiereCyan else TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                }
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("FRAME RATE", color = PremiereCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    frameRates.forEach { fps ->
-                        val isSelected = selectedFrameRate == fps
-                        Card(
-                            modifier = Modifier.weight(1f).clickable { selectedFrameRate = fps },
-                            colors = CardDefaults.cardColors(containerColor = if (isSelected) Color(0xFF003842) else StudioSurfaceElevated),
-                            border = BorderStroke(1.5.dp, if (isSelected) PremiereCyan else StudioBorder),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Box(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp), contentAlignment = Alignment.Center) {
-                                Text(text = fps.substringBefore(" "), color = if (isSelected) PremiereCyan else TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                }
-            }
-            Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFF0C2419)), border = BorderStroke(1.dp, PremiereEmerald), shape = RoundedCornerShape(8.dp)) {
-                Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(imageVector = Icons.Default.CheckCircle, contentDescription = null, tint = PremiereEmerald, modifier = Modifier.size(18.dp))
-                    Text("100% Free Forever • All 4K / 60 FPS Settings Unlocked", color = Color(0xFF6EE7B7), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                }
-            }
-        }
-    }
-}
-// --- PART 3 END ---
-// --- PART 4 START ---
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun EditingWorkspaceScreen(config: SequenceConfig, onBack: () -> Unit) {
-    var isPlaying by remember { mutableStateOf(false) }
-
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Column { Text(config.name, color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis); Text("${config.resolution} • ${config.frameRate} • ${config.aspectRatio}", color = PremiereCyan, fontSize = 10.sp, fontWeight = FontWeight.SemiBold) } },
+                title = { Text("NEW SEQUENCE SETTINGS", fontSize = 15.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp, color = TextPrimary) },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = PremiereCyan) } },
-                actions = { Button(onClick = {}, colors = ButtonDefaults.buttonColors(containerColor = PremiereCyan, contentColor = Color.Black), shape = RoundedCornerShape(6.dp), modifier = Modifier.height(34.dp).padding(end = 8.dp)) { Text("EXPORT", fontWeight = FontWeight.Bold, fontSize = 11.sp) } },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = StudioSurface)
             )
         },
         containerColor = StudioDark
     ) { innerPadding ->
-        Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
-            // Video Player Monitor Viewport
-            Box(modifier = Modifier.fillMaxWidth().weight(1.1f).background(Color.Black).padding(10.dp), contentAlignment = Alignment.Center) {
-                Box(modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)).background(Color(0xFF07080B)).border(1.dp, StudioBorder, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Box(modifier = Modifier.size(56.dp).clip(CircleShape).background(StudioSurfaceElevated).border(1.dp, PremiereCyan, CircleShape).clickable { isPlaying = !isPlaying }, contentAlignment = Alignment.Center) {
-                            Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = "Play", tint = PremiereCyan, modifier = Modifier.size(32.dp))
-                        }
-                        Text(if (isPlaying) "PLAYING PREVIEW" else "VIDEO MONITOR", color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                        config.videoUri?.let { Text("Source: ${it.lastPathSegment ?: "Imported Video"}", color = TextSecondary, fontSize = 10.sp) }
-                    }
-                    Box(modifier = Modifier.align(Alignment.TopStart).padding(8.dp).background(Color(0xCC000000), RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 3.dp)) { Text("${config.aspectRatio} | ${config.resolution}", color = PremiereCyan, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
-                    Box(modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp).background(Color(0xCC000000), RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 3.dp)) { Text("00:00:00:00 / 00:00:15:00", color = Color.White, fontSize = 10.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold) }
+        Column(modifier = Modifier.fillMaxSize().padding(innerPadding).padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+            Text("SEQUENCE NAME", color = PremiereCyan, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            OutlinedTextField(
+                value = sequenceName,
+                onValueChange = { sequenceName = it },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = PremiereCyan, unfocusedBorderColor = StudioBorder, focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary)
+            )
+
+            Text("ASPECT RATIO", color = PremiereCyan, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("9:16", "16:9", "1:1").forEach { ratio ->
+                    val isSel = selectedAspect == ratio
+                    Button(
+                        onClick = { selectedAspect = ratio },
+                        modifier = Modifier.weight(1f).height(44.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = if (isSel) PremiereCyan else StudioSurfaceElevated, contentColor = if (isSel) Color.Black else TextPrimary),
+                        shape = RoundedCornerShape(8.dp),
+                        border = if (isSel) null else BorderStroke(1.dp, StudioBorder)
+                    ) { Text(ratio, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
                 }
             }
 
-            // Playback and Editing Controls Strip
-            Row(modifier = Modifier.fillMaxWidth().background(StudioSurface).border(BorderStroke(1.dp, StudioBorder)).padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    IconButton(onClick = {}) { Icon(Icons.Default.ContentCut, contentDescription = "Split", tint = PremiereCyan) }
-                    IconButton(onClick = {}) { Icon(Icons.Default.Audiotrack, contentDescription = "Audio", tint = TextPrimary) }
-                }
-                IconButton(onClick = { isPlaying = !isPlaying }, modifier = Modifier.size(42.dp).clip(CircleShape).background(PremiereCyan)) { Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = "Play/Pause", tint = Color.Black) }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    IconButton(onClick = {}) { Icon(Icons.Default.AspectRatio, contentDescription = "Canvas", tint = TextPrimary) }
-                    IconButton(onClick = {}) { Icon(Icons.Default.Settings, contentDescription = "Settings", tint = TextSecondary) }
+            Text("RESOLUTION", color = PremiereCyan, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf("720p", "1080p", "2K", "4K").forEach { res ->
+                    val isSel = selectedResolution == res
+                    Button(
+                        onClick = { selectedResolution = res },
+                        modifier = Modifier.weight(1f).height(42.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = if (isSel) PremiereCyan else StudioSurfaceElevated, contentColor = if (isSel) Color.Black else TextPrimary),
+                        shape = RoundedCornerShape(8.dp),
+                        border = if (isSel) null else BorderStroke(1.dp, StudioBorder),
+                        contentPadding = PaddingValues(0.dp)
+                    ) { Text(res, fontWeight = FontWeight.Bold, fontSize = 12.sp) }
                 }
             }
 
-            // Multi-track Timeline Area
-            Column(modifier = Modifier.fillMaxWidth().weight(1.0f).background(StudioDark)) {
-                Box(modifier = Modifier.fillMaxWidth().height(26.dp).background(Color(0xFF12151D)).border(1.dp, StudioBorder), contentAlignment = Alignment.CenterStart) {
-                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                        listOf("00:00", "00:05", "00:10", "00:15").forEach { Text(it, color = TextSecondary, fontSize = 9.sp, fontFamily = FontFamily.Monospace) }
-                    }
-                }
-                LazyColumn(modifier = Modifier.fillMaxSize().padding(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    item {
-                        Row(modifier = Modifier.fillMaxWidth().height(60.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Box(modifier = Modifier.width(46.dp).fillMaxSize().clip(RoundedCornerShape(6.dp)).background(StudioSurfaceElevated).border(1.dp, StudioBorder, RoundedCornerShape(6.dp)), contentAlignment = Alignment.Center) {
-                                Text("V1", color = PremiereCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
-                            Box(modifier = Modifier.weight(1f).fillMaxSize().clip(RoundedCornerShape(6.dp)).background(Color(0xFF003842)).border(1.5.dp, PremiereCyan, RoundedCornerShape(6.dp)).padding(horizontal = 10.dp), contentAlignment = Alignment.CenterStart) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Icon(Icons.Default.Movie, contentDescription = null, tint = PremiereCyan, modifier = Modifier.size(18.dp))
-                                    Column {
-                                        Text(config.videoUri?.lastPathSegment ?: "Primary Video Clip", color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        Text("00:00:00 - 00:15:00", color = PremiereCyan, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    item {
-                        Row(modifier = Modifier.fillMaxWidth().height(48.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Box(modifier = Modifier.width(46.dp).fillMaxSize().clip(RoundedCornerShape(6.dp)).background(StudioSurfaceElevated).border(1.dp, StudioBorder, RoundedCornerShape(6.dp)), contentAlignment = Alignment.Center) {
-                                Text("A1", color = PremiereEmerald, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
-                            Box(modifier = Modifier.weight(1f).fillMaxSize().clip(RoundedCornerShape(6.dp)).background(Color(0xFF0C2419)).border(1.dp, PremiereEmerald, RoundedCornerShape(6.dp)).padding(horizontal = 10.dp), contentAlignment = Alignment.CenterStart) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Icon(Icons.Default.Audiotrack, contentDescription = null, tint = PremiereEmerald, modifier = Modifier.size(16.dp))
-                                    Text("Audio Master (Embedded Track)", color = Color(0xFF6EE7B7), fontSize = 11.sp, fontWeight = FontWeight.Medium)
-                                }
-                            }
-                        }
-                    }
+            Text("FRAME RATE", color = PremiereCyan, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf("24 FPS", "25 FPS", "30 FPS", "50 FPS", "60 FPS").forEach { fps ->
+                    val isSel = selectedFps == fps
+                    Button(
+                        onClick = { selectedFps = fps },
+                        modifier = Modifier.weight(1f).height(40.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = if (isSel) PremiereCyan else StudioSurfaceElevated, contentColor = if (isSel) Color.Black else TextPrimary),
+                        shape = RoundedCornerShape(6.dp),
+                        border = if (isSel) null else BorderStroke(1.dp, StudioBorder),
+                        contentPadding = PaddingValues(0.dp)
+                    ) { Text(fps.replace(" FPS", "p"), fontWeight = FontWeight.Bold, fontSize = 11.sp) }
                 }
             }
+
+            Spacer(modifier = Modifier.height(10.dp))
+            Button(
+                onClick = { onSequenceCreated(SequenceConfig(name = sequenceName.ifBlank { "Sequence 01" }, aspectRatio = selectedAspect, resolution = selectedResolution, frameRate = selectedFps, videoUri = null)) },
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = PremiereCyan, contentColor = Color.Black),
+                shape = RoundedCornerShape(8.dp)
+            ) { Text("CREATE SEQUENCE", fontWeight = FontWeight.Bold, fontSize = 14.sp, letterSpacing = 1.sp) }
         }
     }
 }
@@ -543,6 +411,149 @@ fun SettingsTab() {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("ENGINE SPECIFICATIONS", color = PremiereCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     listOf("• Hardware Acceleration: Enabled (MediaCodec)", "• Video Pipeline: AndroidX Media3 Transformer & ExoPlayer 1.5.1", "• Maximum Resolution: 4K UHD (3840x2160)", "• Frame Rates Supported: 24, 25, 30, 50, 60 FPS").forEach { Text(it, color = TextPrimary, fontSize = 12.sp) }
+                }
+            }
+        }
+    }
+}
+// --- PART 3 END ---
+// --- PART 4 START ---
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EditingWorkspaceScreen(config: SequenceConfig, onBack: () -> Unit) {
+    val context = LocalContext.current
+    var currentVideoUri by remember { mutableStateOf(config.videoUri) }
+    var isPlaying by remember { mutableStateOf(false) }
+
+    val videoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? -> if (uri != null) currentVideoUri = uri }
+
+    val exoPlayer = remember {
+        ExoPlayer.Builder(context).build().apply { repeatMode = Player.REPEAT_MODE_ALL }
+    }
+
+    DisposableEffect(exoPlayer) {
+        val listener = object : Player.Listener {
+            override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
+        }
+        exoPlayer.addListener(listener)
+        onDispose { exoPlayer.removeListener(listener); exoPlayer.release() }
+    }
+
+    LaunchedEffect(currentVideoUri) {
+        currentVideoUri?.let { uri ->
+            exoPlayer.setMediaItem(MediaItem.fromUri(uri))
+            exoPlayer.prepare()
+            exoPlayer.playWhenReady = true
+        }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Column { Text(config.name, color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis); Text("${config.resolution} • ${config.frameRate} • ${config.aspectRatio}", color = PremiereCyan, fontSize = 10.sp, fontWeight = FontWeight.SemiBold) } },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = PremiereCyan) } },
+                actions = {
+                    Button(
+                        onClick = { videoPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) },
+                        colors = ButtonDefaults.buttonColors(containerColor = StudioSurfaceElevated, contentColor = PremiereCyan),
+                        shape = RoundedCornerShape(6.dp), modifier = Modifier.height(34.dp).padding(end = 6.dp), border = BorderStroke(1.dp, PremiereCyan)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(if (currentVideoUri == null) "IMPORT" else "REPLACE", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                    }
+                    Button(onClick = {}, colors = ButtonDefaults.buttonColors(containerColor = PremiereCyan, contentColor = Color.Black), shape = RoundedCornerShape(6.dp), modifier = Modifier.height(34.dp).padding(end = 8.dp)) {
+                        Text("EXPORT", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = StudioSurface)
+            )
+        },
+        containerColor = StudioDark
+    ) { innerPadding ->
+        Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+            // Video Player Monitor Viewport with Real ExoPlayer
+            Box(modifier = Modifier.fillMaxWidth().weight(1.1f).background(Color.Black).padding(8.dp), contentAlignment = Alignment.Center) {
+                Box(modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)).background(Color(0xFF07080B)).border(1.dp, StudioBorder, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
+                    if (currentVideoUri != null) {
+                        AndroidView(factory = { ctx -> PlayerView(ctx).apply { player = exoPlayer; useController = false; layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT) } }, modifier = Modifier.fillMaxSize())
+                    } else {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Box(modifier = Modifier.size(56.dp).clip(CircleShape).background(Color(0xFF003842)).border(1.dp, PremiereCyan, CircleShape), contentAlignment = Alignment.Center) {
+                                Icon(Icons.Default.VideoLibrary, contentDescription = "Import", tint = PremiereCyan, modifier = Modifier.size(28.dp))
+                            }
+                            Text("NO MEDIA IMPORTED", color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                            Button(onClick = { videoPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) }, colors = ButtonDefaults.buttonColors(containerColor = PremiereCyan, contentColor = Color.Black), shape = RoundedCornerShape(6.dp), modifier = Modifier.height(36.dp)) {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("IMPORT VIDEO CLIP", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                            }
+                        }
+                    }
+                    Box(modifier = Modifier.align(Alignment.TopStart).padding(8.dp).background(Color(0xCC000000), RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 3.dp)) { Text("${config.aspectRatio} | ${config.resolution}", color = PremiereCyan, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                    Box(modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp).background(Color(0xCC000000), RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 3.dp)) { Text(if (currentVideoUri != null) (if (isPlaying) "PLAYING" else "PAUSED") else "IDLE", color = if (isPlaying) PremiereEmerald else Color.White, fontSize = 10.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold) }
+                }
+            }
+
+            // Playback and Editing Controls Strip
+            Row(modifier = Modifier.fillMaxWidth().background(StudioSurface).border(BorderStroke(1.dp, StudioBorder)).padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    IconButton(onClick = {}) { Icon(Icons.Default.ContentCut, contentDescription = "Split", tint = PremiereCyan) }
+                    IconButton(onClick = {}) { Icon(Icons.Default.Audiotrack, contentDescription = "Audio", tint = TextPrimary) }
+                }
+                IconButton(onClick = { if (currentVideoUri != null) { if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play() } else { videoPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) } }, modifier = Modifier.size(42.dp).clip(CircleShape).background(PremiereCyan)) {
+                    Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = "Play/Pause", tint = Color.Black)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    IconButton(onClick = {}) { Icon(Icons.Default.AspectRatio, contentDescription = "Canvas", tint = TextPrimary) }
+                    IconButton(onClick = {}) { Icon(Icons.Default.Settings, contentDescription = "Settings", tint = TextSecondary) }
+                }
+            }
+
+            // Multi-track Timeline Area
+            Column(modifier = Modifier.fillMaxWidth().weight(1.0f).background(StudioDark)) {
+                Box(modifier = Modifier.fillMaxWidth().height(26.dp).background(Color(0xFF12151D)).border(1.dp, StudioBorder), contentAlignment = Alignment.CenterStart) {
+                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                        listOf("00:00", "00:05", "00:10", "00:15").forEach { Text(it, color = TextSecondary, fontSize = 9.sp, fontFamily = FontFamily.Monospace) }
+                    }
+                }
+                LazyColumn(modifier = Modifier.fillMaxSize().padding(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    item {
+                        Row(modifier = Modifier.fillMaxWidth().height(60.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Box(modifier = Modifier.width(46.dp).fillMaxSize().clip(RoundedCornerShape(6.dp)).background(StudioSurfaceElevated).border(1.dp, StudioBorder, RoundedCornerShape(6.dp)), contentAlignment = Alignment.Center) { Text("V1", color = PremiereCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                            if (currentVideoUri != null) {
+                                Box(modifier = Modifier.weight(1f).fillMaxSize().clip(RoundedCornerShape(6.dp)).background(Color(0xFF003842)).border(1.5.dp, PremiereCyan, RoundedCornerShape(6.dp)).padding(horizontal = 10.dp), contentAlignment = Alignment.CenterStart) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Icon(Icons.Default.Movie, contentDescription = null, tint = PremiereCyan, modifier = Modifier.size(18.dp))
+                                        Column {
+                                            Text(currentVideoUri?.lastPathSegment ?: "Primary Video Clip", color = TextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Text("Track V1 • ${config.resolution} • ${config.frameRate}", color = PremiereCyan, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+                                        }
+                                    }
+                                }
+                            } else {
+                                Box(modifier = Modifier.weight(1f).fillMaxSize().clip(RoundedCornerShape(6.dp)).background(StudioSurfaceElevated).border(1.dp, StudioBorder, RoundedCornerShape(6.dp)).clickable { videoPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)) }.padding(horizontal = 12.dp), contentAlignment = Alignment.CenterStart) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Icon(Icons.Default.Add, contentDescription = null, tint = PremiereCyan, modifier = Modifier.size(16.dp))
+                                        Text("+ Add Media to Timeline Track V1", color = PremiereCyan, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    item {
+                        Row(modifier = Modifier.fillMaxWidth().height(48.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Box(modifier = Modifier.width(46.dp).fillMaxSize().clip(RoundedCornerShape(6.dp)).background(StudioSurfaceElevated).border(1.dp, StudioBorder, RoundedCornerShape(6.dp)), contentAlignment = Alignment.Center) { Text("A1", color = PremiereEmerald, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                            Box(modifier = Modifier.weight(1f).fillMaxSize().clip(RoundedCornerShape(6.dp)).background(Color(0xFF0C2419)).border(1.dp, PremiereEmerald, RoundedCornerShape(6.dp)).padding(horizontal = 10.dp), contentAlignment = Alignment.CenterStart) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Icon(Icons.Default.Audiotrack, contentDescription = null, tint = PremiereEmerald, modifier = Modifier.size(16.dp))
+                                    Text(if (currentVideoUri != null) "Audio Master (Synchronized A1)" else "Audio Track A1 (Empty)", color = Color(0xFF6EE7B7), fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
