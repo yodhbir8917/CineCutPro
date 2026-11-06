@@ -45,7 +45,21 @@ import androidx.media3.ui.PlayerView
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import android.content.ContentValues
+import android.content.Context
+import android.os.Build
+import android.provider.MediaStore
+import android.widget.Toast
+import androidx.media3.transformer.Composition
+import androidx.media3.transformer.EditedMediaItem
+import androidx.media3.transformer.EditedMediaItemSequence
+import androidx.media3.transformer.ExportException
+import androidx.media3.transformer.ExportResult
+import androidx.media3.transformer.ProgressHolder
+import androidx.media3.transformer.Transformer
 import kotlinx.coroutines.delay
+import java.io.File
+import java.io.FileInputStream
 import java.util.UUID
 
 val PremiereCyan = Color(0xFF00E5FF)
@@ -91,6 +105,34 @@ fun formatTimecode(ms: Long): String {
     return "%02d:%02d:%02d".format(m, s, f)
 }
 
+fun saveVideoToMediaStore(context: Context, inputFile: File, fileName: String): Uri? {
+    val resolver = context.contentResolver
+    val contentValues = ContentValues().apply {
+        put(MediaStore.Video.Media.DISPLAY_NAME, fileName)
+        put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/CineCutPro")
+            put(MediaStore.Video.Media.IS_PENDING, 1)
+        }
+    }
+    val uri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, contentValues) ?: return null
+    try {
+        resolver.openOutputStream(uri)?.use { out ->
+            FileInputStream(inputFile).use { it.copyTo(out) }
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            contentValues.clear()
+            contentValues.put(MediaStore.Video.Media.IS_PENDING, 0)
+            resolver.update(uri, contentValues, null, null)
+        }
+        return uri
+    } catch (e: Exception) {
+        resolver.delete(uri, null, null)
+        return null
+    }
+}
+// --- PART 1 END ---
+// --- PART 2 START ---
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -104,8 +146,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-// --- PART 1 END ---
-// --- PART 2 START ---
+
 @Composable
 fun CineCutNavigationApp() {
     val navController = rememberNavController()
@@ -375,7 +416,72 @@ fun EditingWorkspaceScreen(config: SequenceConfig, onBack: () -> Unit) {
         }
     }
 
-    // Split Function (Scissor Tool)
+    var isExporting by remember { mutableStateOf(false) }
+    var exportProgress by remember { mutableIntStateOf(0) }
+    var activeTransformer by remember { mutableStateOf<Transformer?>(null) }
+
+    LaunchedEffect(isExporting) {
+        if (isExporting) {
+            val progressHolder = ProgressHolder()
+            while (isExporting) {
+                activeTransformer?.let { trans ->
+                    val state = trans.getProgress(progressHolder)
+                    if (state == Transformer.PROGRESS_STATE_AVAILABLE) {
+                        exportProgress = progressHolder.progress
+                    }
+                }
+                delay(150)
+            }
+        }
+    }
+
+    val onExportClicked = {
+        if (clips.isEmpty()) {
+            Toast.makeText(context, "No clips in timeline to export!", Toast.LENGTH_SHORT).show()
+        } else {
+            isExporting = true
+            exportProgress = 0
+            val outputFile = File(context.cacheDir, "cinecut_${System.currentTimeMillis()}.mp4")
+            if (outputFile.exists()) outputFile.delete()
+
+            val editedItems = clips.map { clip ->
+                val clipping = MediaItem.ClippingConfiguration.Builder()
+                    .setStartPositionMs(clip.startMs)
+                    .setEndPositionMs(clip.endMs)
+                    .build()
+                val mediaItem = MediaItem.Builder().setUri(clip.uri).setClippingConfiguration(clipping).build()
+                EditedMediaItem.Builder(mediaItem).build()
+            }
+            val composition = Composition.Builder(listOf(EditedMediaItemSequence(editedItems))).build()
+
+            val transformer = Transformer.Builder(context)
+                .addListener(object : Transformer.Listener {
+                    override fun onCompleted(composition: Composition, exportResult: ExportResult) {
+                        val savedUri = saveVideoToMediaStore(context, outputFile, "CineCut_${System.currentTimeMillis()}.mp4")
+                        outputFile.delete()
+                        isExporting = false
+                        activeTransformer = null
+                        if (savedUri != null) {
+                            Toast.makeText(context, "Saved successfully to Movies/CineCutPro!", Toast.LENGTH_LONG).show()
+                        } else {
+                            Toast.makeText(context, "Export finished, but failed to save to gallery.", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+
+                    override fun onError(composition: Composition, exportResult: ExportResult, exportException: ExportException) {
+                        outputFile.delete()
+                        isExporting = false
+                        activeTransformer = null
+                        Toast.makeText(context, "Export error: ${exportException.message}", Toast.LENGTH_LONG).show()
+                    }
+                })
+                .build()
+
+            activeTransformer = transformer
+            transformer.start(composition, outputFile.absolutePath)
+        }
+    }
+
     val onSplitClicked = {
         val cutPos = currentPlayheadMs
         var accum = 0L
@@ -398,7 +504,8 @@ fun EditingWorkspaceScreen(config: SequenceConfig, onBack: () -> Unit) {
         }
         if (didSplit) clips = updated
     }
-
+// --- PART 4 END ---
+// --- PART 5 START ---
     Scaffold(
         topBar = {
             TopAppBar(
@@ -414,7 +521,7 @@ fun EditingWorkspaceScreen(config: SequenceConfig, onBack: () -> Unit) {
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(if (clips.isEmpty()) "IMPORT" else "ADD MEDIA", fontWeight = FontWeight.Bold, fontSize = 11.sp)
                     }
-                    Button(onClick = {}, colors = ButtonDefaults.buttonColors(containerColor = PremiereCyan, contentColor = Color.Black), shape = RoundedCornerShape(6.dp), modifier = Modifier.height(34.dp).padding(end = 8.dp)) {
+                    Button(onClick = onExportClicked, colors = ButtonDefaults.buttonColors(containerColor = PremiereCyan, contentColor = Color.Black), shape = RoundedCornerShape(6.dp), modifier = Modifier.height(34.dp).padding(end = 8.dp)) {
                         Text("EXPORT", fontWeight = FontWeight.Bold, fontSize = 11.sp)
                     }
                 },
@@ -506,8 +613,7 @@ fun EditingWorkspaceScreen(config: SequenceConfig, onBack: () -> Unit) {
                             }
                         }
                     }
-// --- PART 4 END ---
-// --- PART 5 START ---
+
                     // Tracks Container
                     LazyColumn(modifier = Modifier.fillMaxSize().padding(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         // Track V1
@@ -559,7 +665,8 @@ fun EditingWorkspaceScreen(config: SequenceConfig, onBack: () -> Unit) {
                                                     ) {
                                                         Box(modifier = Modifier.width(2.dp).height(20.dp).background(Color.Black))
                                                     }
-
+// --- PART 5 END ---
+// --- PART 6 START ---
                                                     // Right Trim Handle (Draggable)
                                                     Box(
                                                         modifier = Modifier.align(Alignment.CenterEnd).width(12.dp).fillMaxHeight().background(PremiereAmber, RoundedCornerShape(topEnd = 6.dp, bottomEnd = 6.dp))
@@ -643,5 +750,38 @@ fun EditingWorkspaceScreen(config: SequenceConfig, onBack: () -> Unit) {
             }
         }
     }
+
+    if (isExporting) {
+        AlertDialog(
+            onDismissRequest = {},
+            containerColor = StudioSurfaceElevated,
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = PremiereCyan)
+                    Text("EXPORTING VIDEO", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Rendering ${clips.size} clips with Media3 Transformer hardware acceleration...", color = TextSecondary, fontSize = 12.sp, lineHeight = 16.sp)
+                    LinearProgressIndicator(progress = { exportProgress / 100f }, modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)), color = PremiereCyan, trackColor = StudioBorder)
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("$exportProgress% Completed", color = PremiereCyan, fontSize = 12.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                        Text("Movies/CineCutPro", color = TextSecondary, fontSize = 10.sp)
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        activeTransformer?.cancel()
+                        isExporting = false
+                        Toast.makeText(context, "Export cancelled", Toast.LENGTH_SHORT).show()
+                    }
+                ) { Text("CANCEL", color = PremiereAmber, fontWeight = FontWeight.Bold) }
+            }
+        )
+    }
 }
-// --- PART 5 END ---
+// --- PART 6 END ---
