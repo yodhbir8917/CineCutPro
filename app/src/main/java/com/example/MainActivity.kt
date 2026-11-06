@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -68,16 +69,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-// --- CINECUT PRO STUDIO COLOR PALETTE (100% Free Forever) ---
-val StudioDark = Color(0xFF0D0F14)             // Root deep background
-val StudioSurface = Color(0xFF161922)          // Top bar & navigation bars
-val StudioSurfaceElevated = Color(0xFF1E2230)  // Cards & floating containers
-val StudioBorder = Color(0xFF2B3144)           // Subtle structural borders
-val PremiereCyan = Color(0xFF00E5FF)           // Signature Cyan accent
-val PremiereAmber = Color(0xFFFFB300)          // Preset accent
-val PremiereEmerald = Color(0xFF10B981)        // Free Forever emerald
-val TextPrimary = Color(0xFFF1F3F9)            // Crisp white
-val TextSecondary = Color(0xFF9DA7BE)          // Slate gray subtext
+// --- COLOR PALETTE (100% Free Forever CineCut Studio) ---
+val StudioDark = Color(0xFF0D0F14)
+val StudioSurface = Color(0xFF161922)
+val StudioSurfaceElevated = Color(0xFF1E2230)
+val StudioBorder = Color(0xFF2B3144)
+val PremiereCyan = Color(0xFF00E5FF)
+val PremiereAmber = Color(0xFFFFB300)
+val PremiereEmerald = Color(0xFF10B981)
+val TextPrimary = Color(0xFFF1F3F9)
+val TextSecondary = Color(0xFF9DA7BE)
 
 private val CineCutColorScheme = darkColorScheme(
     primary = PremiereCyan,
@@ -116,25 +117,23 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun CineCutHomeScreen() {
     val context = LocalContext.current
-    var selectedTab by remember { mutableIntStateOf(0) } // 0: PROJECTS, 1: PRESETS, 2: EXPORTS, 3: SETTINGS
+    var selectedTab by remember { mutableIntStateOf(0) }
 
-    // Native Android Photo Picker for Video Selection
+    // Native Android Photo Picker (VideoOnly)
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
         if (uri != null) {
-            Toast.makeText(
-                context,
-                "Video Selected:\n$uri",
-                Toast.LENGTH_LONG
-            ).show()
+            Toast.makeText(context, "Selected video:\n$uri", Toast.LENGTH_LONG).show()
         } else {
-            Toast.makeText(
-                context,
-                "No video was selected.",
-                Toast.LENGTH_SHORT
-            ).show()
+            Toast.makeText(context, "No video selected.", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    val openPicker = {
+        photoPickerLauncher.launch(
+            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
+        )
     }
 
     Scaffold(
@@ -184,13 +183,7 @@ fun CineCutHomeScreen() {
                     }
                 },
                 actions = {
-                    IconButton(
-                        onClick = {
-                            photoPickerLauncher.launch(
-                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
-                            )
-                        }
-                    ) {
+                    IconButton(onClick = openPicker) {
                         Icon(
                             imageVector = Icons.Default.Add,
                             contentDescription = "New Project",
@@ -199,19 +192,13 @@ fun CineCutHomeScreen() {
                         )
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = StudioSurface
-                )
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = StudioSurface)
             )
         },
         floatingActionButton = {
             if (selectedTab == 0) {
                 FloatingActionButton(
-                    onClick = {
-                        photoPickerLauncher.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
-                        )
-                    },
+                    onClick = openPicker,
                     containerColor = PremiereCyan,
                     contentColor = Color.Black,
                     shape = RoundedCornerShape(16.dp)
@@ -238,7 +225,7 @@ fun CineCutHomeScreen() {
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            // --- TABS SECTION: PROJECTS (0), PRESETS, EXPORTS, SETTINGS ---
+            // Tabs Row
             TabRow(
                 selectedTabIndex = selectedTab,
                 containerColor = StudioSurface,
@@ -253,58 +240,28 @@ fun CineCutHomeScreen() {
                 Tab(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
-                    text = {
-                        Text(
-                            text = "PROJECTS (0)",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp
-                        )
-                    }
+                    text = { Text("PROJECTS (0)", fontWeight = FontWeight.Bold, fontSize = 12.sp) }
                 )
                 Tab(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
-                    text = {
-                        Text(
-                            text = "PRESETS",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp
-                        )
-                    }
+                    text = { Text("PRESETS", fontWeight = FontWeight.Bold, fontSize = 12.sp) }
                 )
                 Tab(
                     selected = selectedTab == 2,
                     onClick = { selectedTab = 2 },
-                    text = {
-                        Text(
-                            text = "EXPORTS",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp
-                        )
-                    }
+                    text = { Text("EXPORTS", fontWeight = FontWeight.Bold, fontSize = 12.sp) }
                 )
                 Tab(
                     selected = selectedTab == 3,
                     onClick = { selectedTab = 3 },
-                    text = {
-                        Text(
-                            text = "SETTINGS",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp
-                        )
-                    }
+                    text = { Text("SETTINGS", fontWeight = FontWeight.Bold, fontSize = 12.sp) }
                 )
             }
 
-            // --- TAB CONTENT ---
+            // Tab Views
             when (selectedTab) {
-                0 -> ProjectsEmptyState(
-                    onStartNewProject = {
-                        photoPickerLauncher.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
-                        )
-                    }
-                )
+                0 -> ProjectsEmptyState(onStartNewProject = openPicker)
                 1 -> PresetsTab()
                 2 -> ExportsTab()
                 3 -> SettingsTab()
@@ -313,11 +270,8 @@ fun CineCutHomeScreen() {
     }
 }
 
-// --- TAB 0: PROJECTS (EMPTY STATE) ---
 @Composable
-fun ProjectsEmptyState(
-    onStartNewProject: () -> Unit
-) {
+fun ProjectsEmptyState(onStartNewProject: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -328,7 +282,6 @@ fun ProjectsEmptyState(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Central Icon Badge
             Box(
                 modifier = Modifier
                     .size(68.dp)
@@ -345,7 +298,6 @@ fun ProjectsEmptyState(
                 )
             }
 
-            // Empty State Title
             Text(
                 text = "NO EDITING SEQUENCES YET",
                 color = TextPrimary,
@@ -354,7 +306,6 @@ fun ProjectsEmptyState(
                 letterSpacing = 1.sp
             )
 
-            // Diagnostic Notice Card
             Card(
                 modifier = Modifier
                     .fillMaxWidth(0.92f)
@@ -393,7 +344,6 @@ fun ProjectsEmptyState(
 
             Spacer(modifier = Modifier.height(4.dp))
 
-            // Primary Cyan Action Button: "+ START NEW PROJECT"
             Button(
                 onClick = onStartNewProject,
                 colors = ButtonDefaults.buttonColors(
@@ -421,14 +371,14 @@ fun ProjectsEmptyState(
     }
 }
 
-// --- TAB 1: PRESETS ---
 @Composable
 fun PresetsTab() {
+    data class PresetItem(val title: String, val subtitle: String, val badge: String)
     val presets = listOf(
-        Triple("YouTube & 4K Cinema", "16:9 Landscape • 3840x2160 • 60 FPS", "LANDSCAPE"),
-        Triple("TikTok & Instagram Reels", "9:16 Vertical • 1080x1920 • 30 FPS", "VERTICAL"),
-        Triple("Instagram Square", "1:1 Square • 1080x1080 • 30 FPS", "SQUARE"),
-        Triple("Anamorphic UltraWide", "21:9 Scope • 2560x1080 • 24 FPS", "CINEMA")
+        PresetItem("YouTube & 4K Cinema", "16:9 Landscape • 3840x2160 • 60 FPS", "LANDSCAPE"),
+        PresetItem("TikTok & Instagram Reels", "9:16 Vertical • 1080x1920 • 30 FPS", "VERTICAL"),
+        PresetItem("Instagram Square", "1:1 Square • 1080x1080 • 30 FPS", "SQUARE"),
+        PresetItem("Anamorphic UltraWide", "21:9 Scope • 2560x1080 • 24 FPS", "CINEMA")
     )
 
     LazyColumn(
@@ -446,8 +396,7 @@ fun PresetsTab() {
                 modifier = Modifier.padding(bottom = 4.dp)
             )
         }
-        items(presets.size) { index ->
-            val preset = presets[index]
+        items(presets) { preset ->
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = StudioSurfaceElevated),
@@ -481,20 +430,20 @@ fun PresetsTab() {
                         }
                         Column {
                             Text(
-                                text = preset.first,
+                                text = preset.title,
                                 color = TextPrimary,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = preset.second,
+                                text = preset.subtitle,
                                 color = TextSecondary,
                                 fontSize = 11.sp
                             )
                         }
                     }
                     Text(
-                        text = preset.third,
+                        text = preset.badge,
                         color = PremiereCyan,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
@@ -506,7 +455,131 @@ fun PresetsTab() {
     }
 }
 
-// --- TAB 2: EXPORTS ---
 @Composable
 fun ExportsTab() {
-    Bo
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(64.dp)
+                    .clip(CircleShape)
+                    .background(StudioSurfaceElevated)
+                    .border(1.dp, StudioBorder, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Folder,
+                    contentDescription = null,
+                    tint = PremiereAmber,
+                    modifier = Modifier.size(32.dp)
+                )
+            }
+            Text(
+                text = "NO EXPORTED VIDEOS YET",
+                color = TextPrimary,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp
+            )
+            Text(
+                text = "Videos exported from CineCut Pro are saved to Movies/CineCutPro at full quality without watermarks.",
+                color = TextSecondary,
+                fontSize = 12.sp,
+                lineHeight = 16.sp
+            )
+        }
+    }
+}
+
+@Composable
+fun SettingsTab() {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF0C2419)),
+                border = BorderStroke(1.dp, PremiereEmerald),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Row(
+              modifier = Modifier.padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        tint = PremiereEmerald,
+                        modifier = Modifier.size(24.dp)
+                        )
+                    Column {
+                        Text(
+                            text = "100% FREE FOREVER GUARANTEE",
+                            color = PremiereEmerald,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+                        Text(
+                            text = "No subscriptions • No watermarks • No ads • Works 100% offline",
+                            color = Color(0xFF6EE7B7),
+                            fontSize = 11.sp
+                            )
+                    }
+                }
+            }
+        }
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = StudioSurfaceElevated),
+                border = BorderStroke(1.dp, StudioBorder),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Column(
+                    modifier =
+                        Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "ENGINE SPECIFICATIONS",
+                        color = PremiereCyan,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "• Hardware Acceleration: Enabled (MediaCodec)",
+                        color = TextPrimary,
+                        fontSize = 12.sp
+                    )
+                    Text(
+                        text = "• Video Pipeline: AndroidX Media3 Transformer & ExoPlayer 1.5.1",
+                        color = TextPrimary,
+                        fontSize = 12.sp
+                    )
+                    Text(
+                        text = "• Maximum Resolution: 4K UHD (3840x2160)",
+                        color = TextPrimary,
+                        fontSize = 12.sp
+                    )
+                    Text(
+                        text = "• Frame Rates Supported: 24, 25, 30, 50, 60 FPS",
+                        color = TextPrimary,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+        }
+    }
+}
